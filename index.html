@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Senai - Agenda de Aulas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- FullCalendar -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+
+  <style>
+    html,body,#calendar { height: 100%; }
+    .fc .fc-event { cursor: pointer; }
+  </style>
+</head>
+<body class="h-screen bg-gray-100 font-sans">
+  <div class="h-full flex">
+    <!-- Lateral: Cadastros / controles -->
+    <aside class="w-96 p-4 bg-white border-r overflow-auto">
+      <h1 class="text-2xl font-bold mb-4">Painel Senai — Agenda</h1>
+
+      <section class="mb-6">
+        <h2 class="font-semibold">Professores</h2>
+        <div id="teachers-list" class="mt-2 space-y-2"></div>
+        <div class="mt-3">
+          <input id="teacher-name" placeholder="Nome do professor" class="input input-sm p-2 border rounded w-full" />
+          <input id="teacher-area" placeholder="Área / disciplina" class="input input-sm p-2 border rounded w-full mt-2" />
+          <button id="add-teacher" class="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded">Adicionar Professor</button>
+        </div>
+      </section>
+
+      <section class="mb-6">
+        <h2 class="font-semibold">Cursos</h2>
+        <div id="courses-list" class="mt-2 space-y-2"></div>
+        <div class="mt-3">
+          <input id="course-name" placeholder="Nome do curso" class="p-2 border rounded w-full" />
+          <input id="course-hours" placeholder="Carga horária (opcional)" class="p-2 border rounded w-full mt-2" />
+          <button id="add-course" class="mt-2 w-full bg-green-600 hover:bg-green-700 text-white p-2 rounded">Adicionar Curso</button>
+        </div>
+      </section>
+
+      <section class="mb-6">
+        <h2 class="font-semibold">Filtros</h2>
+        <select id="filter-professor" class="w-full p-2 border rounded mt-2">
+          <option value="">Todos os professores</option>
+        </select>
+        <select id="filter-course" class="w-full p-2 border rounded mt-2">
+          <option value="">Todos os cursos</option>
+        </select>
+        <div class="flex gap-2 mt-2">
+          <button id="clear-filters" class="flex-1 p-2 bg-gray-300 rounded">Limpar</button>
+          <button id="today-btn" class="flex-1 p-2 bg-blue-500 text-white rounded">Hoje</button>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="font-semibold">Atalhos</h2>
+        <div class="mt-2 space-y-2">
+          <button id="open-event-modal" class="w-full p-2 bg-indigo-500 text-white rounded">Agendar Aula</button>
+          <button id="export-data" class="w-full p-2 bg-gray-800 text-white rounded">Exportar JSON</button>
+          <button id="import-data" class="w-full p-2 bg-yellow-500 text-black rounded">Importar JSON</button>
+          <input id="import-file" type="file" accept="application/json" class="hidden" />
+        </div>
+      </section>
+
+      <footer class="mt-6 text-xs text-gray-500">Dados salvos localmente no navegador (localStorage). Use exportar/importar para backup.</footer>
+    </aside>
+
+    <!-- Conteúdo principal: calendário -->
+    <main class="flex-1 p-4">
+      <div class="bg-white p-4 rounded shadow h-full flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-xl font-semibold">Calendário Semanal</h2>
+            <p class="text-sm text-gray-500">Visualize e organize as aulas dos professores</p>
+          </div>
+          <div class="space-x-2">
+            <button id="week-view" class="px-3 py-1 border rounded">Semana</button>
+            <button id="month-view" class="px-3 py-1 border rounded">Mês</button>
+            <button id="list-view" class="px-3 py-1 border rounded">Lista</button>
+          </div>
+        </div>
+
+        <div id="calendar" class="flex-1"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal de evento -->
+  <div id="event-modal" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center hidden">
+    <div class="bg-white rounded p-6 w-[720px] max-w-full">
+      <h3 class="text-lg font-bold mb-3">Agendar / Editar Aula</h3>
+      <form id="event-form" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm">Turma (nome)</label>
+            <input id="ev-title" class="w-full p-2 border rounded" placeholder="Ex: Turma A - 2º período" required />
+          </div>
+          <div>
+            <label class="block text-sm">Curso</label>
+            <select id="ev-course" class="w-full p-2 border rounded"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm">Professor</label>
+            <select id="ev-teacher" class="w-full p-2 border rounded" required></select>
+          </div>
+          <div>
+            <label class="block text-sm">Sala / Observação</label>
+            <input id="ev-location" class="w-full p-2 border rounded" placeholder="Sala 101, Observação..." />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm">Data de Início</label>
+            <input id="ev-start-date" type="date" class="w-full p-2 border rounded" required />
+          </div>
+          <div>
+            <label class="block text-sm">Hora de Início</label>
+            <input id="ev-start-time" type="time" class="w-full p-2 border rounded" required />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm">Data Final (mesmo dia se não recorrente)</label>
+            <input id="ev-end-date" type="date" class="w-full p-2 border rounded" required />
+          </div>
+          <div>
+            <label class="block text-sm">Hora de Término</label>
+            <input id="ev-end-time" type="time" class="w-full p-2 border rounded" required />
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <input id="ev-recurring" type="checkbox" />
+          <label class="text-sm">Repetir semanalmente até data final</label>
+        </div>
+
+        <input type="hidden" id="ev-id">
+
+        <div class="flex justify-end gap-2">
+          <button type="button" id="delete-event" class="bg-red-500 text-white px-3 py-2 rounded hidden">Excluir</button>
+          <button type="button" id="cancel-event" class="px-3 py-2 border rounded">Cancelar</button>
+          <button type="submit" class="px-3 py-2 bg-indigo-600 text-white rounded">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // === Dados em localStorage ===
+    const STORAGE_KEYS = { teachers: 'senai_teachers', courses: 'senai_courses', events: 'senai_events' };
+
+    function load(key, fallback = []){
+      try{ return JSON.parse(localStorage.getItem(key)) || fallback; }catch(e){ return fallback }
+    }
+    function save(key, data){ localStorage.setItem(key, JSON.stringify(data)); }
+
+    let teachers = load(STORAGE_KEYS.teachers);
+    let courses = load(STORAGE_KEYS.courses);
+    let storedEvents = load(STORAGE_KEYS.events);
+
+    // Utils
+    function uid(){ return 'id-'+Math.random().toString(36).slice(2,9); }
+    function formatEventTitle(ev){ return `[${ev.courseName || ''}] ${ev.title} — ${ev.teacherName || ''}`; }
+
+    // DOM references
+    const teachersList = document.getElementById('teachers-list');
+    const coursesList = document.getElementById('courses-list');
+    const filterProfessor = document.getElementById('filter-professor');
+    const filterCourse = document.getElementById('filter-course');
+    const calendarEl = document.getElementById('calendar');
+
+    // Forms - cadastro
+    document.getElementById('add-teacher').addEventListener('click', ()=>{
+      const name = document.getElementById('teacher-name').value.trim();
+      const area = document.getElementById('teacher-area').value.trim();
+      if(!name) return alert('Nome do professor é obrigatório');
+      teachers.push({ id: uid(), name, area });
+      save(STORAGE_KEYS.teachers, teachers);
+      document.getElementById('teacher-name').value=''; document.getElementById('teacher-area').value='';
+      renderTeachers(); populateFilters(); populateFormSelects();
+    });
+
+    document.getElementById('add-course').addEventListener('click', ()=>{
+      const name = document.getElementById('course-name').value.trim();
+      const hours = document.getElementById('course-hours').value.trim();
+      if(!name) return alert('Nome do curso é obrigatório');
+      courses.push({ id: uid(), name, hours });
+      save(STORAGE_KEYS.courses, courses);
+      document.getElementById('course-name').value=''; document.getElementById('course-hours').value='';
+      renderCourses(); populateFilters(); populateFormSelects();
+    });
+
+    function renderTeachers(){
+      teachersList.innerHTML = '';
+      teachers.forEach(t=>{
+        const div = document.createElement('div');
+        div.className='p-2 border rounded flex justify-between items-center';
+        div.innerHTML = `<div><div class=\"font-semibold\">${t.name}</div><div class=\"text-xs text-gray-500\">${t.area||''}</div></div><button data-id=\"${t.id}\" class=\"text-red-500\">Remover</button>`;
+        teachersList.appendChild(div);
+        div.querySelector('button').addEventListener('click', ()=>{
+          if(!confirm('Remover professor?')) return;
+          teachers = teachers.filter(x=>x.id!==t.id); save(STORAGE_KEYS.teachers, teachers);
+          renderTeachers(); populateFilters(); populateFormSelects();
+        });
+      });
+    }
+
+    function renderCourses(){
+      coursesList.innerHTML = '';
+      courses.forEach(c=>{
+        const div = document.createElement('div');
+        div.className='p-2 border rounded flex justify-between items-center';
+        div.innerHTML = `<div><div class=\"font-semibold\">${c.name}</div><div class=\"text-xs text-gray-500\">${c.hours||''}</div></div><button data-id=\"${c.id}\" class=\"text-red-500\">Remover</button>`;
+        coursesList.appendChild(div);
+        div.querySelector('button').addEventListener('click', ()=>{
+          if(!confirm('Remover curso?')) return;
+          courses = courses.filter(x=>x.id!==c.id); save(STORAGE_KEYS.courses, courses);
+          renderCourses(); populateFilters(); populateFormSelects();
+        });
+      });
+    }
+
+    function populateFilters(){
+      // professor filter
+      filterProfessor.innerHTML = `<option value="">Todos os professores</option>` + teachers.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+      filterCourse.innerHTML = `<option value="">Todos os cursos</option>` + courses.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    }
+
+    function populateFormSelects(){
+      const evTeacher = document.getElementById('ev-teacher');
+      const evCourse = document.getElementById('ev-course');
+      evTeacher.innerHTML = '<option value="">Selecione professor</option>' + teachers.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+      evCourse.innerHTML = '<option value="">Selecione curso</option>' + courses.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    }
+
+    // === Inicializar FullCalendar ===
+    let calendar;
+    function initCalendar(){
+      calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        height: '100%',
+        nowIndicator: true,
+        slotMinTime: '06:00:00',
+        slotMaxTime: '22:00:00',
+        selectable: true,
+        editable: true,
+        navLinks: true,
+        headerToolbar: false,
+        eventClick: info => openEventModal(info.event.extendedProps._customId || info.event.id),
+        select: info => openEventModal(null, info.start, info.end),
+        events: mapStoredEventsToCalendar(storedEvents),
+        eventDrop: handleEventDrop,
+        eventResize: handleEventResize
+      });
+      calendar.render();
+    }
+
+    function mapStoredEventsToCalendar(sts){
+      return sts.map(ev=>({
+        id: ev.id,
+        title: formatEventTitle(ev),
+        start: ev.start,
+        end: ev.end,
+        extendedProps: { ...ev, _customId: ev.id }
+      }));
+    }
+
+    function refreshCalendar(){
+      storedEvents = load(STORAGE_KEYS.events);
+      calendar.removeAllEvents();
+      calendar.addEventSource(mapStoredEventsToCalendar(storedEvents));
+    }
+
+    // Conflict check: same professor overlap
+    function hasConflict(newStart, newEnd, teacherId, ignoreEventId=null){
+      const ns = new Date(newStart).getTime();
+      const ne = new Date(newEnd).getTime();
+      return storedEvents.some(ev => {
+        if(ignoreEventId && ev.id === ignoreEventId) return false;
+        if(ev.teacherId !== teacherId) return false;
+        const s = new Date(ev.start).getTime();
+        const e = new Date(ev.end).getTime();
+        return (ns < e) && (ne > s); // overlap
+      });
+    }
+
+    // Event handlers for drag/drop/resize
+    function handleEventDrop(info){
+      const ev = storedEvents.find(e=>e.id===info.event.id);
+      const newStart = info.event.start;
+      const newEnd = info.event.end;
+      if(hasConflict(newStart, newEnd, ev.teacherId, ev.id)){
+        alert('Conflito: professor já tem aula nesse horário.');
+        info.revert();
+        return;
+      }
+      ev.start = newStart.toISOString(); ev.end = newEnd.toISOString(); save(STORAGE_KEYS.events, storedEvents);
+    }
+    function handleEventResize(info){
+      const ev = storedEvents.find(e=>e.id===info.event.id);
+      const newStart = info.event.start; const newEnd = info.event.end;
+      if(hasConflict(newStart, newEnd, ev.teacherId, ev.id)){
+        alert('Conflito ao redimensionar: professor já tem aula nesse horário.');
+        info.revert();
+        return;
+      }
+      ev.start = newStart.toISOString(); ev.end = newEnd.toISOString(); save(STORAGE_KEYS.events, storedEvents);
+    }
+
+    // Modal controls
+    const eventModal = document.getElementById('event-modal');
+    const eventForm = document.getElementById('event-form');
+
+    document.getElementById('open-event-modal').addEventListener('click', ()=>openEventModal());
+    document.getElementById('cancel-event').addEventListener('click', closeEventModal);
+
+    function openEventModal(eventId=null, start=null, end=null){
+      document.getElementById('ev-id').value = eventId || '';
+      document.getElementById('delete-event').classList.toggle('hidden', !eventId);
+
+      populateFormSelects();
+
+      if(eventId){
+        const ev = storedEvents.find(e=>e.id===eventId);
+        if(!ev) return alert('Evento não encontrado');
+        document.getElementById('ev-title').value = ev.title;
+        document.getElementById('ev-course').value = ev.courseId || '';
+        document.getElementById('ev-teacher').value = ev.teacherId || '';
+        document.getElementById('ev-location').value = ev.location || '';
+        const s = new Date(ev.start);
+        const e = new Date(ev.end);
+        document.getElementById('ev-start-date').value = s.toISOString().slice(0,10);
+        document.getElementById('ev-start-time').value = s.toTimeString().slice(0,5);
+        document.getElementById('ev-end-date').value = e.toISOString().slice(0,10);
+        document.getElementById('ev-end-time').value = e.toTimeString().slice(0,5);
+        document.getElementById('ev-recurring').checked = false;
+      } else {
+        document.getElementById('ev-title').value = '';
+        document.getElementById('ev-course').value = '';
+        document.getElementById('ev-teacher').value = '';
+        document.getElementById('ev-location').value = '';
+        if(start && end){
+          const s = new Date(start); const e = new Date(end);
+          document.getElementById('ev-start-date').value = s.toISOString().slice(0,10);
+          document.getElementById('ev-start-time').value = s.toTimeString().slice(0,5);
+          document.getElementById('ev-end-date').value = e.toISOString().slice(0,10);
+          document.getElementById('ev-end-time').value = e.toTimeString().slice(0,5);
+        } else {
+          const today = new Date();
+          document.getElementById('ev-start-date').value = today.toISOString().slice(0,10);
+          document.getElementById('ev-end-date').value = today.toISOString().slice(0,10);
+          document.getElementById('ev-start-time').value = '13:00';
+          document.getElementById('ev-end-time').value = '15:00';
+        }
+      }
+
+      eventModal.classList.remove('hidden');
+    }
+    function closeEventModal(){ eventModal.classList.add('hidden'); }
+
+    document.getElementById('delete-event').addEventListener('click', ()=>{
+      const id = document.getElementById('ev-id').value;
+      if(!id) return;
+      if(!confirm('Excluir evento?')) return;
+      storedEvents = storedEvents.filter(e=>e.id!==id); save(STORAGE_KEYS.events, storedEvents); refreshCalendar(); closeEventModal();
+    });
+
+    eventForm.addEventListener('submit', e=>{
+      e.preventDefault();
+      const id = document.getElementById('ev-id').value || uid();
+      const title = document.getElementById('ev-title').value.trim();
+      const courseId = document.getElementById('ev-course').value;
+      const courseName = (courses.find(c=>c.id===courseId) || {}).name || '';
+      const teacherId = document.getElementById('ev-teacher').value;
+      const teacherName = (teachers.find(t=>t.id===teacherId) || {}).name || '';
+      const location = document.getElementById('ev-location').value.trim();
+      const startDate = document.getElementById('ev-start-date').value;
+      const startTime = document.getElementById('ev-start-time').value;
+      const endDate = document.getElementById('ev-end-date').value;
+      const endTime = document.getElementById('ev-end-time').value;
+      const recurring = document.getElementById('ev-recurring').checked;
+
+      const startISO = new Date(startDate+'T'+startTime+':00').toISOString();
+      const endISO = new Date(endDate+'T'+endTime+':00').toISOString();
+      if(new Date(startISO) >= new Date(endISO)) return alert('Hora de término deve ser depois da hora de início.');
+
+      // If recurring: create weekly events until endDate
+      if(recurring){
+        // We'll create events every 7 days starting at startDate until endDate (inclusive)
+        const baseStart = new Date(startDate+'T'+startTime+':00');
+        const finalDate = new Date(endDate+'T23:59:59');
+        const created = [];
+        let cursor = new Date(baseStart);
+        while(cursor <= finalDate){
+          const s = new Date(cursor);
+          const e = new Date(s.getTime() + (new Date(endISO) - new Date(startISO)));
+          // conflict check
+          if(hasConflict(s, e, teacherId, null)){
+            alert('Conflito detectado em '+s.toLocaleString()+'. Nenhuma alteração aplicada para essa data.');
+          } else {
+            const evObj = { id: uid(), title, courseId, courseName, teacherId, teacherName, location, start: s.toISOString(), end: e.toISOString() };
+            storedEvents.push(evObj); created.push(evObj);
+          }
+          cursor.setDate(cursor.getDate()+7);
+        }
+        save(STORAGE_KEYS.events, storedEvents);
+        refreshCalendar(); closeEventModal();
+        return;
+      }
+
+      // Non-recurring single event
+      if(hasConflict(startISO, endISO, teacherId, id)) return alert('Conflito: professor já tem aula nesse horário.');
+
+      // if editing existing -> replace
+      const existsIndex = storedEvents.findIndex(x=>x.id===id);
+      const evObj = { id, title, courseId, courseName, teacherId, teacherName, location, start: startISO, end: endISO };
+      if(existsIndex>=0){ storedEvents[existsIndex] = evObj; }
+      else { storedEvents.push(evObj); }
+      save(STORAGE_KEYS.events, storedEvents);
+      refreshCalendar(); closeEventModal();
+    });
+
+    // Filters
+    filterProfessor.addEventListener('change', applyFilters);
+    filterCourse.addEventListener('change', applyFilters);
+    document.getElementById('clear-filters').addEventListener('click', ()=>{ filterProfessor.value=''; filterCourse.value=''; applyFilters(); });
+    document.getElementById('today-btn').addEventListener('click', ()=>calendar.today());
+
+    function applyFilters(){
+      const prof = filterProfessor.value; const course = filterCourse.value;
+      calendar.removeAllEvents();
+      let filtered = storedEvents.slice();
+      if(prof) filtered = filtered.filter(e=>e.teacherId===prof);
+      if(course) filtered = filtered.filter(e=>e.courseId===course);
+      calendar.addEventSource(mapStoredEventsToCalendar(filtered));
+    }
+
+    // Views
+    document.getElementById('week-view').addEventListener('click', ()=>calendar.changeView('timeGridWeek'));
+    document.getElementById('month-view').addEventListener('click', ()=>calendar.changeView('dayGridMonth'));
+    document.getElementById('list-view').addEventListener('click', ()=>calendar.changeView('listWeek'));
+
+    // Export/Import
+    document.getElementById('export-data').addEventListener('click', ()=>{
+      const dump = { teachers, courses, events: storedEvents };
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'senai_agenda_export.json'; a.click(); URL.revokeObjectURL(url);
+    });
+    document.getElementById('import-data').addEventListener('click', ()=>document.getElementById('import-file').click());
+    document.getElementById('import-file').addEventListener('change', async (ev)=>{
+      const f = ev.target.files[0]; if(!f) return;
+      const txt = await f.text();
+      try{
+        const parsed = JSON.parse(txt);
+        teachers = parsed.teachers || teachers; courses = parsed.courses || courses; storedEvents = parsed.events || storedEvents;
+        save(STORAGE_KEYS.teachers, teachers); save(STORAGE_KEYS.courses, courses); save(STORAGE_KEYS.events, storedEvents);
+        renderTeachers(); renderCourses(); populateFilters(); populateFormSelects(); refreshCalendar();
+        alert('Importado com sucesso');
+      }catch(e){ alert('Arquivo inválido'); }
+    });
+
+    // Inicialização
+    renderTeachers(); renderCourses(); populateFilters(); populateFormSelects(); initCalendar();
+  </script>
+</body>
+</html>
