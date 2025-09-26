@@ -9,24 +9,76 @@
   <!-- FullCalendar -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales-all.global.min.js"></script>
 
   <style>
     html,body,#calendar { height: 100%; }
     .fc .fc-event { cursor: pointer; }
+
+    /* Modal centralizado com fundo opaco e alto z-index */
+    #event-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    #event-modal.active { display: flex; }
+    /* Ajuste do inner modal para evitar clique por fora */
+    #event-modal .modal-card { position: relative; z-index: 10000; }
+
+    /* Tela de login / register full screen (acima do app) */
+    .auth-screen { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; background: #f3f4f6; z-index:10010; }
+    .auth-card { background:white; padding:24px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.12); width:100%; max-width:380px; }
   </style>
 </head>
 <body class="h-screen bg-gray-100 font-sans">
-  <div class="h-full flex">
+  <!-- ===== AUTH (LOGIN / REGISTER) ===== -->
+  <div id="login-screen" class="auth-screen">
+    <div class="auth-card">
+      <div class="flex justify-center mb-4">
+        <!-- Troque o src para sua logo (ex: logo-senai.png) -->
+        <img id="login-logo" src="logo-senai.png" alt="Logo SENAI" class="h-20 w-auto">
+      </div>
+      <h1 class="text-2xl font-bold text-center mb-4">Entrar</h1>
+      <input id="login-email" type="email" placeholder="E-mail" class="p-2 border rounded w-full mb-3" />
+      <input id="login-password" type="password" placeholder="Senha" class="p-2 border rounded w-full mb-3" />
+      <button id="login-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white p-2 rounded mb-3">Entrar</button>
+      <p class="text-sm text-center">Não tem conta? <a href="#" id="go-register" class="text-blue-600">Cadastre-se</a></p>
+    </div>
+  </div>
+
+  <div id="register-screen" class="auth-screen" style="display:none;">
+    <div class="auth-card">
+      <div class="flex justify-center mb-4">
+        <img id="register-logo" src="logo-senai.png" alt="Logo SENAI" class="h-20 w-auto">
+      </div>
+      <h1 class="text-2xl font-bold text-center mb-4">Cadastro</h1>
+      <input id="register-name" type="text" placeholder="Nome completo" class="p-2 border rounded w-full mb-3" />
+      <input id="register-email" type="email" placeholder="E-mail" class="p-2 border rounded w-full mb-3" />
+      <input id="register-password" type="password" placeholder="Senha" class="p-2 border rounded w-full mb-3" />
+      <button id="register-btn" class="w-full bg-green-600 hover:bg-green-700 text-white p-2 rounded mb-3">Cadastrar</button>
+      <p class="text-sm text-center">Já tem conta? <a href="#" id="go-login" class="text-blue-600">Faça login</a></p>
+    </div>
+  </div>
+
+  <!-- ===== APP (escondido até login) ===== -->
+  <div id="app-screen" class="h-full flex" style="display:none;">
     <!-- Lateral: Cadastros / controles -->
     <aside class="w-96 p-4 bg-white border-r overflow-auto">
-      <h1 class="text-2xl font-bold mb-4">Painel Senai — Agenda</h1>
+      <div class="flex items-center justify-between mb-4">
+        <h1 class="text-2xl font-bold">Painel Senai — Agenda</h1>
+        <button id="logout-btn" class="text-sm text-red-600 border px-2 py-1 rounded">Sair</button>
+      </div>
 
       <section class="mb-6">
         <h2 class="font-semibold">Professores</h2>
         <div id="teachers-list" class="mt-2 space-y-2"></div>
         <div class="mt-3">
-          <input id="teacher-name" placeholder="Nome do professor" class="input input-sm p-2 border rounded w-full" />
-          <input id="teacher-area" placeholder="Área / disciplina" class="input input-sm p-2 border rounded w-full mt-2" />
+          <input id="teacher-name" placeholder="Nome do professor" class="p-2 border rounded w-full" />
+          <input id="teacher-area" placeholder="Área / disciplina" class="p-2 border rounded w-full mt-2" />
           <button id="add-teacher" class="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded">Adicionar Professor</button>
         </div>
       </section>
@@ -89,8 +141,8 @@
   </div>
 
   <!-- Modal de evento -->
-  <div id="event-modal" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center hidden">
-    <div class="bg-white rounded p-6 w-[720px] max-w-full">
+  <div id="event-modal" aria-hidden="true">
+    <div class="modal-card bg-white rounded p-6 w-[720px] max-w-full">
       <h3 class="text-lg font-bold mb-3">Agendar / Editar Aula</h3>
       <form id="event-form" class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
@@ -154,30 +206,86 @@
   </div>
 
   <script>
-    // === Dados em localStorage ===
-    const STORAGE_KEYS = { teachers: 'senai_teachers', courses: 'senai_courses', events: 'senai_events' };
+    // ===== Keys e Helpers =====
+    const STORAGE_KEYS = {
+      users: 'senai_users',
+      teachers: 'senai_teachers',
+      courses: 'senai_courses',
+      events: 'senai_events'
+    };
 
-    function load(key, fallback = []){
-      try{ return JSON.parse(localStorage.getItem(key)) || fallback; }catch(e){ return fallback }
+    function load(key, fallback = []) {
+      try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch(e) { return fallback; }
     }
-    function save(key, data){ localStorage.setItem(key, JSON.stringify(data)); }
+    function save(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
+    function uid(){ return 'id-'+Math.random().toString(36).slice(2,9); }
 
+    // ===== Dados carregados =====
+    let users = load(STORAGE_KEYS.users);
     let teachers = load(STORAGE_KEYS.teachers);
     let courses = load(STORAGE_KEYS.courses);
     let storedEvents = load(STORAGE_KEYS.events);
 
-    // Utils
-    function uid(){ return 'id-'+Math.random().toString(36).slice(2,9); }
-    function formatEventTitle(ev){ return `[${ev.courseName || ''}] ${ev.title} — ${ev.teacherName || ''}`; }
+    // ===== Referências DOM =====
+    const loginScreen = document.getElementById('login-screen');
+    const registerScreen = document.getElementById('register-screen');
+    const appScreen = document.getElementById('app-screen');
+    const logoutBtn = document.getElementById('logout-btn');
 
-    // DOM references
+    // Auth fields
+    const loginEmail = document.getElementById('login-email');
+    const loginPass = document.getElementById('login-password');
+    const loginBtn = document.getElementById('login-btn');
+
+    const regName = document.getElementById('register-name');
+    const regEmail = document.getElementById('register-email');
+    const regPass = document.getElementById('register-password');
+    const regBtn = document.getElementById('register-btn');
+
+    document.getElementById('go-register').addEventListener('click', (e)=>{ e.preventDefault(); loginScreen.style.display='none'; registerScreen.style.display='flex'; });
+    document.getElementById('go-login').addEventListener('click', (e)=>{ e.preventDefault(); registerScreen.style.display='none'; loginScreen.style.display='flex'; });
+
+    // Simple registration (stored locally) - NOTE: not secure, for demo only
+    regBtn.addEventListener('click', ()=>{
+      const name = regName.value.trim(), email = regEmail.value.trim(), pass = regPass.value.trim();
+      if(!name||!email||!pass) return alert('Preencha todos os campos');
+      if(users.some(u=>u.email===email)) return alert('E-mail já cadastrado');
+      users.push({ id: uid(), name, email, pass });
+      save(STORAGE_KEYS.users, users);
+      alert('Cadastro realizado! Faça login.');
+      regName.value=''; regEmail.value=''; regPass.value='';
+      registerScreen.style.display='none'; loginScreen.style.display='flex';
+    });
+
+    // Login
+    loginBtn.addEventListener('click', ()=>{
+      const email = loginEmail.value.trim(), pass = loginPass.value.trim();
+      if(!email||!pass) return alert('Preencha e-mail e senha');
+      const user = users.find(u=>u.email===email && u.pass===pass);
+      if(!user) return alert('Credenciais inválidas');
+      // sucesso: abrir app
+      loginEmail.value=''; loginPass.value='';
+      loginScreen.style.display='none';
+      registerScreen.style.display='none';
+      appScreen.style.display='flex';
+      startApp();
+    });
+
+    logoutBtn.addEventListener('click', ()=>{
+      if(!confirm('Deseja realmente sair?')) return;
+      // esconder app e voltar para login
+      appScreen.style.display='none';
+      loginScreen.style.display='flex';
+      // destroy calendar instance by reloading page for simplicity
+      location.reload();
+    });
+
+    // ===== UI Lateral - Professores / Cursos =====
     const teachersList = document.getElementById('teachers-list');
     const coursesList = document.getElementById('courses-list');
     const filterProfessor = document.getElementById('filter-professor');
     const filterCourse = document.getElementById('filter-course');
-    const calendarEl = document.getElementById('calendar');
 
-    // Forms - cadastro
     document.getElementById('add-teacher').addEventListener('click', ()=>{
       const name = document.getElementById('teacher-name').value.trim();
       const area = document.getElementById('teacher-area').value.trim();
@@ -203,7 +311,7 @@
       teachers.forEach(t=>{
         const div = document.createElement('div');
         div.className='p-2 border rounded flex justify-between items-center';
-        div.innerHTML = `<div><div class=\"font-semibold\">${t.name}</div><div class=\"text-xs text-gray-500\">${t.area||''}</div></div><button data-id=\"${t.id}\" class=\"text-red-500\">Remover</button>`;
+        div.innerHTML = `<div><div class="font-semibold">${t.name}</div><div class="text-xs text-gray-500">${t.area||''}</div></div><button data-id="${t.id}" class="text-red-500">Remover</button>`;
         teachersList.appendChild(div);
         div.querySelector('button').addEventListener('click', ()=>{
           if(!confirm('Remover professor?')) return;
@@ -218,7 +326,7 @@
       courses.forEach(c=>{
         const div = document.createElement('div');
         div.className='p-2 border rounded flex justify-between items-center';
-        div.innerHTML = `<div><div class=\"font-semibold\">${c.name}</div><div class=\"text-xs text-gray-500\">${c.hours||''}</div></div><button data-id=\"${c.id}\" class=\"text-red-500\">Remover</button>`;
+        div.innerHTML = `<div><div class="font-semibold">${c.name}</div><div class="text-xs text-gray-500">${c.hours||''}</div></div><button data-id="${c.id}" class="text-red-500">Remover</button>`;
         coursesList.appendChild(div);
         div.querySelector('button').addEventListener('click', ()=>{
           if(!confirm('Remover curso?')) return;
@@ -229,7 +337,6 @@
     }
 
     function populateFilters(){
-      // professor filter
       filterProfessor.innerHTML = `<option value="">Todos os professores</option>` + teachers.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
       filterCourse.innerHTML = `<option value="">Todos os cursos</option>` + courses.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
     }
@@ -241,10 +348,29 @@
       evCourse.innerHTML = '<option value="">Selecione curso</option>' + courses.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
     }
 
-    // === Inicializar FullCalendar ===
-    let calendar;
+    // ===== FullCalendar + Eventos =====
+    const calendarEl = document.getElementById('calendar');
+    const eventModal = document.getElementById('event-modal');
+    const eventForm = document.getElementById('event-form');
+
+    let calendar = null;
+
+    function mapStoredEventsToCalendar(sts){
+      // If stored in older format, ensure start/end are ISO strings
+      return sts.map(ev=>({
+        id: ev.id,
+        title: formatEventTitle(ev),
+        start: ev.start,
+        end: ev.end,
+        extendedProps: { courseId: ev.courseId, courseName: ev.courseName, teacherId: ev.teacherId, teacherName: ev.teacherName, location: ev.location }
+      }));
+    }
+
+    function formatEventTitle(ev){ return `[${ev.courseName || ''}] ${ev.title} — ${ev.teacherName || ''}`; }
+
     function initCalendar(){
       calendar = new FullCalendar.Calendar(calendarEl, {
+        locale: 'pt-br',
         initialView: 'timeGridWeek',
         height: '100%',
         nowIndicator: true,
@@ -254,27 +380,18 @@
         editable: true,
         navLinks: true,
         headerToolbar: false,
-        eventClick: info => openEventModal(info.event.extendedProps._customId || info.event.id),
-        select: info => openEventModal(null, info.start, info.end),
         events: mapStoredEventsToCalendar(storedEvents),
+        select: info => openEventModal(null, info.start, info.end),
+        eventClick: info => openEventModal(info.event.extendedProps._customId || info.event.id),
         eventDrop: handleEventDrop,
         eventResize: handleEventResize
       });
       calendar.render();
     }
 
-    function mapStoredEventsToCalendar(sts){
-      return sts.map(ev=>({
-        id: ev.id,
-        title: formatEventTitle(ev),
-        start: ev.start,
-        end: ev.end,
-        extendedProps: { ...ev, _customId: ev.id }
-      }));
-    }
-
     function refreshCalendar(){
       storedEvents = load(STORAGE_KEYS.events);
+      if(!calendar) return;
       calendar.removeAllEvents();
       calendar.addEventSource(mapStoredEventsToCalendar(storedEvents));
     }
@@ -292,7 +409,6 @@
       });
     }
 
-    // Event handlers for drag/drop/resize
     function handleEventDrop(info){
       const ev = storedEvents.find(e=>e.id===info.event.id);
       const newStart = info.event.start;
@@ -302,8 +418,10 @@
         info.revert();
         return;
       }
-      ev.start = newStart.toISOString(); ev.end = newEnd.toISOString(); save(STORAGE_KEYS.events, storedEvents);
+      ev.start = newStart.toISOString(); ev.end = newEnd.toISOString();
+      save(STORAGE_KEYS.events, storedEvents);
     }
+
     function handleEventResize(info){
       const ev = storedEvents.find(e=>e.id===info.event.id);
       const newStart = info.event.start; const newEnd = info.event.end;
@@ -312,20 +430,18 @@
         info.revert();
         return;
       }
-      ev.start = newStart.toISOString(); ev.end = newEnd.toISOString(); save(STORAGE_KEYS.events, storedEvents);
+      ev.start = newStart.toISOString(); ev.end = newEnd.toISOString();
+      save(STORAGE_KEYS.events, storedEvents);
     }
 
-    // Modal controls
-    const eventModal = document.getElementById('event-modal');
-    const eventForm = document.getElementById('event-form');
-
-    document.getElementById('open-event-modal').addEventListener('click', ()=>openEventModal());
+    // ===== Modal controls & form logic =====
+    document.getElementById('open-event-modal').addEventListener('click', ()=> openEventModal());
     document.getElementById('cancel-event').addEventListener('click', closeEventModal);
+    document.getElementById('delete-event').addEventListener('click', deleteEventFromModal);
 
     function openEventModal(eventId=null, start=null, end=null){
       document.getElementById('ev-id').value = eventId || '';
       document.getElementById('delete-event').classList.toggle('hidden', !eventId);
-
       populateFormSelects();
 
       if(eventId){
@@ -335,14 +451,14 @@
         document.getElementById('ev-course').value = ev.courseId || '';
         document.getElementById('ev-teacher').value = ev.teacherId || '';
         document.getElementById('ev-location').value = ev.location || '';
-        const s = new Date(ev.start);
-        const e = new Date(ev.end);
+        const s = new Date(ev.start), e = new Date(ev.end);
         document.getElementById('ev-start-date').value = s.toISOString().slice(0,10);
         document.getElementById('ev-start-time').value = s.toTimeString().slice(0,5);
         document.getElementById('ev-end-date').value = e.toISOString().slice(0,10);
         document.getElementById('ev-end-time').value = e.toTimeString().slice(0,5);
         document.getElementById('ev-recurring').checked = false;
       } else {
+        // novo evento
         document.getElementById('ev-title').value = '';
         document.getElementById('ev-course').value = '';
         document.getElementById('ev-teacher').value = '';
@@ -362,16 +478,25 @@
         }
       }
 
-      eventModal.classList.remove('hidden');
+      // abrir modal
+      eventModal.classList.add('active');
+      eventModal.setAttribute('aria-hidden','false');
     }
-    function closeEventModal(){ eventModal.classList.add('hidden'); }
 
-    document.getElementById('delete-event').addEventListener('click', ()=>{
+    function closeEventModal(){
+      eventModal.classList.remove('active');
+      eventModal.setAttribute('aria-hidden','true');
+    }
+
+    function deleteEventFromModal(){
       const id = document.getElementById('ev-id').value;
       if(!id) return;
       if(!confirm('Excluir evento?')) return;
-      storedEvents = storedEvents.filter(e=>e.id!==id); save(STORAGE_KEYS.events, storedEvents); refreshCalendar(); closeEventModal();
-    });
+      storedEvents = storedEvents.filter(e=>e.id!==id);
+      save(STORAGE_KEYS.events, storedEvents);
+      refreshCalendar();
+      closeEventModal();
+    }
 
     eventForm.addEventListener('submit', e=>{
       e.preventDefault();
@@ -392,19 +517,18 @@
       const endISO = new Date(endDate+'T'+endTime+':00').toISOString();
       if(new Date(startISO) >= new Date(endISO)) return alert('Hora de término deve ser depois da hora de início.');
 
-      // If recurring: create weekly events until endDate
+      // recurring weekly
       if(recurring){
-        // We'll create events every 7 days starting at startDate until endDate (inclusive)
         const baseStart = new Date(startDate+'T'+startTime+':00');
         const finalDate = new Date(endDate+'T23:59:59');
-        const created = [];
         let cursor = new Date(baseStart);
+        const created = [];
         while(cursor <= finalDate){
           const s = new Date(cursor);
           const e = new Date(s.getTime() + (new Date(endISO) - new Date(startISO)));
-          // conflict check
           if(hasConflict(s, e, teacherId, null)){
-            alert('Conflito detectado em '+s.toLocaleString()+'. Nenhuma alteração aplicada para essa data.');
+            // pule conflito (avisa)
+            console.warn('Conflito detectado em '+s.toLocaleString());
           } else {
             const evObj = { id: uid(), title, courseId, courseName, teacherId, teacherName, location, start: s.toISOString(), end: e.toISOString() };
             storedEvents.push(evObj); created.push(evObj);
@@ -416,26 +540,25 @@
         return;
       }
 
-      // Non-recurring single event
+      // single event
       if(hasConflict(startISO, endISO, teacherId, id)) return alert('Conflito: professor já tem aula nesse horário.');
 
-      // if editing existing -> replace
       const existsIndex = storedEvents.findIndex(x=>x.id===id);
       const evObj = { id, title, courseId, courseName, teacherId, teacherName, location, start: startISO, end: endISO };
-      if(existsIndex>=0){ storedEvents[existsIndex] = evObj; }
-      else { storedEvents.push(evObj); }
+      if(existsIndex>=0) storedEvents[existsIndex] = evObj; else storedEvents.push(evObj);
       save(STORAGE_KEYS.events, storedEvents);
       refreshCalendar(); closeEventModal();
     });
 
-    // Filters
-    filterProfessor.addEventListener('change', applyFilters);
-    filterCourse.addEventListener('change', applyFilters);
+    // ===== Filters / Views / Export-Import =====
+    document.getElementById('filter-professor').addEventListener('change', applyFilters);
+    document.getElementById('filter-course').addEventListener('change', applyFilters);
     document.getElementById('clear-filters').addEventListener('click', ()=>{ filterProfessor.value=''; filterCourse.value=''; applyFilters(); });
-    document.getElementById('today-btn').addEventListener('click', ()=>calendar.today());
+    document.getElementById('today-btn').addEventListener('click', ()=> calendar && calendar.today());
 
     function applyFilters(){
       const prof = filterProfessor.value; const course = filterCourse.value;
+      if(!calendar) return;
       calendar.removeAllEvents();
       let filtered = storedEvents.slice();
       if(prof) filtered = filtered.filter(e=>e.teacherId===prof);
@@ -443,19 +566,18 @@
       calendar.addEventSource(mapStoredEventsToCalendar(filtered));
     }
 
-    // Views
-    document.getElementById('week-view').addEventListener('click', ()=>calendar.changeView('timeGridWeek'));
-    document.getElementById('month-view').addEventListener('click', ()=>calendar.changeView('dayGridMonth'));
-    document.getElementById('list-view').addEventListener('click', ()=>calendar.changeView('listWeek'));
+    document.getElementById('week-view').addEventListener('click', ()=> calendar && calendar.changeView('timeGridWeek'));
+    document.getElementById('month-view').addEventListener('click', ()=> calendar && calendar.changeView('dayGridMonth'));
+    document.getElementById('list-view').addEventListener('click', ()=> calendar && calendar.changeView('listWeek'));
 
-    // Export/Import
     document.getElementById('export-data').addEventListener('click', ()=>{
       const dump = { teachers, courses, events: storedEvents };
       const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = 'senai_agenda_export.json'; a.click(); URL.revokeObjectURL(url);
     });
-    document.getElementById('import-data').addEventListener('click', ()=>document.getElementById('import-file').click());
+
+    document.getElementById('import-data').addEventListener('click', ()=> document.getElementById('import-file').click());
     document.getElementById('import-file').addEventListener('change', async (ev)=>{
       const f = ev.target.files[0]; if(!f) return;
       const txt = await f.text();
@@ -468,8 +590,14 @@
       }catch(e){ alert('Arquivo inválido'); }
     });
 
-    // Inicialização
-    renderTeachers(); renderCourses(); populateFilters(); populateFormSelects(); initCalendar();
+    // ===== Inicialização do app após login =====
+    function startApp(){
+      renderTeachers(); renderCourses(); populateFilters(); populateFormSelects();
+      initCalendar();
+    }
+
+    // Se quiser já manter logado (fluxo simples): checar flag (não implementado por padrão)
+    // Inicialização — deixa no estado de login até o usuário entrar
   </script>
 </body>
 </html>
